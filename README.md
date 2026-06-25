@@ -12,12 +12,13 @@ In normal Blackjack, a basic strategy player decides what to do from information
 - the dealer's visible card
 - whether the player has a usable ace
 
-In this first version, the player can choose only:
+In the current version, the player can choose:
 
 - `hit`
 - `stand`
+- `double`
 
-The strategy is not hard-coded. Instead, the program uses Q-learning to learn which action is better in each state.
+The strategy is not hard-coded. Instead, the program uses Q-learning to learn which action is better in each state. Doubling is available only as the first action of a hand.
 
 During training, the program also uses practice states. This means some hands begin from important hard-total situations such as hard 12 vs dealer 4 or hard 16 vs dealer 10. These practice hands help the agent learn the Basic Strategy table more evenly.
 
@@ -40,6 +41,11 @@ During training, the program also uses practice states. This means some hands be
   - Evaluates the learned policy.
   - Writes result CSV files.
 
+- `src/blackjack_rl/train_count.py`
+  - Trains the point-count scenario.
+  - Uses a finite shoe and Hi-Lo count.
+  - Adjusts the bet based on the true count.
+
 ## Run
 
 From this folder:
@@ -55,6 +61,58 @@ python -m src.blackjack_rl.train_basic --episodes 50000 --eval-hands 10000 --pra
 ```
 
 Use `--practice-ratio 0` to train only from normal random hands.
+
+## Step 2: Point-Count Scenario
+
+The second scenario adds a finite Blackjack shoe and a Hi-Lo point count.
+
+Hi-Lo counting works like this:
+
+- cards 2-6 add `+1`
+- cards 7-9 add `0`
+- cards 10 and ace add `-1`
+
+The program converts the running count into a true count by dividing by the approximate number of decks remaining. The state now includes a rounded true-count bucket.
+
+For the portfolio task, this is the implemented point-count system:
+
+- finite 6-deck shoe by default
+- reshuffle after 75% shoe penetration
+- visible cards update the running count
+- the dealer hole card is counted only when revealed
+- true count is rounded and clipped into buckets from `-5` to `5`
+- the RL state becomes player total, dealer upcard, usable ace, true-count bucket, and whether double is legal
+
+The bet also changes:
+
+- low or neutral count: bet 1 unit
+- true count 2: bet 2 units
+- true count 3: bet 3 units
+- true count 4 or higher: bet 4 units
+
+Run the point-count scenario:
+
+```powershell
+python -m src.blackjack_rl.train_count --episodes 100000 --eval-hands 20000 --out results_count
+```
+
+To compare the effect of count state and variable betting separately:
+
+```powershell
+python -m src.blackjack_rl.train_count --mode compare --episodes 100000 --eval-hands 20000 --out results_count_compare
+```
+
+To initialize count-state agents from a learned no-count policy:
+
+```powershell
+python -m src.blackjack_rl.train_count --mode compare --pretrain-episodes 100000 --episodes 100000 --eval-hands 20000 --out results_count_compare_pretrained
+```
+
+For a quick point-count smoke test:
+
+```powershell
+python -m src.blackjack_rl.train_count --episodes 5000 --eval-hands 1000 --out results_count_smoke
+```
 
 For a quicker test:
 

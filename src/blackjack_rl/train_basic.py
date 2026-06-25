@@ -165,7 +165,7 @@ def print_policy(agent: QLearningAgent) -> None:
     for player_total in range(12, 22):
         actions = []
         for dealer_upcard in DEALER_CARDS:
-            state = State(player_total, dealer_upcard, False)
+            state = State(player_total, dealer_upcard, False, can_double=True)
             actions.append(agent.best_action(state, ("hit", "stand")))
         print(f"{player_total:>12} | " + " | ".join(f"{action:>5}" for action in actions))
 
@@ -178,7 +178,7 @@ def basic_strategy_accuracy(agent: QLearningAgent) -> dict[str, float | int]:
 
     for player_total, dealer_table in HARD_TOTAL_BASIC_STRATEGY.items():
         for dealer_upcard, expected_action in dealer_table.items():
-            state = State(player_total, dealer_upcard, False)
+            state = State(player_total, dealer_upcard, False, can_double=True)
             learned_action = agent.best_action(state, ("hit", "stand"))
             if learned_action == expected_action:
                 matches += 1
