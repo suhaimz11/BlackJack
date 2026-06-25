@@ -8,6 +8,21 @@ from .agent import QLearningAgent
 from .env import BlackjackEnv, State
 
 
+DEALER_CARDS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+DEALER_LABELS = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "A"]
+
+# Standard hard-total basic strategy for hit/stand only.
+# A dealer ace is represented as 11 in the code.
+HARD_TOTAL_BASIC_STRATEGY: dict[int, dict[int, str]] = {
+    12: {2: "hit", 3: "hit", 4: "stand", 5: "stand", 6: "stand", 7: "hit", 8: "hit", 9: "hit", 10: "hit", 11: "hit"},
+    13: {2: "stand", 3: "stand", 4: "stand", 5: "stand", 6: "stand", 7: "hit", 8: "hit", 9: "hit", 10: "hit", 11: "hit"},
+    14: {2: "stand", 3: "stand", 4: "stand", 5: "stand", 6: "stand", 7: "hit", 8: "hit", 9: "hit", 10: "hit", 11: "hit"},
+    15: {2: "stand", 3: "stand", 4: "stand", 5: "stand", 6: "stand", 7: "hit", 8: "hit", 9: "hit", 10: "hit", 11: "hit"},
+    16: {2: "stand", 3: "stand", 4: "stand", 5: "stand", 6: "stand", 7: "hit", 8: "hit", 9: "hit", 10: "hit", 11: "hit"},
+    17: {2: "stand", 3: "stand", 4: "stand", 5: "stand", 6: "stand", 7: "stand", 8: "stand", 9: "stand", 10: "stand", 11: "stand"},
+}
+
+
 def play_training_hand(env: BlackjackEnv, agent: QLearningAgent, epsilon: float) -> float:
     """Play one hand while learning from every action."""
 
@@ -116,17 +131,44 @@ def write_csv(path: Path, rows: list[dict]) -> None:
 def print_policy(agent: QLearningAgent) -> None:
     """Print the learned policy for all dealer upcards."""
 
-    dealer_cards = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
-    dealer_labels = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "A"]
-
     print("\nLearned policy, no usable ace:")
-    print("player_total | " + " | ".join(f"{label:>5}" for label in dealer_labels))
+    print("player_total | " + " | ".join(f"{label:>5}" for label in DEALER_LABELS))
     for player_total in range(12, 22):
         actions = []
-        for dealer_upcard in dealer_cards:
+        for dealer_upcard in DEALER_CARDS:
             state = State(player_total, dealer_upcard, False)
             actions.append(agent.best_action(state, ("hit", "stand")))
         print(f"{player_total:>12} | " + " | ".join(f"{action:>5}" for action in actions))
+
+
+def basic_strategy_accuracy(agent: QLearningAgent) -> dict[str, float | int]:
+    """Compare learned hard-total actions with the known basic strategy table."""
+
+    matches = 0
+    total = 0
+
+    for player_total, dealer_table in HARD_TOTAL_BASIC_STRATEGY.items():
+        for dealer_upcard, expected_action in dealer_table.items():
+            state = State(player_total, dealer_upcard, False)
+            learned_action = agent.best_action(state, ("hit", "stand"))
+            if learned_action == expected_action:
+                matches += 1
+            total += 1
+
+    return {
+        "matches": matches,
+        "total": total,
+        "accuracy": round(matches / total, 4),
+    }
+
+
+def print_basic_strategy_accuracy(agent: QLearningAgent) -> None:
+    score = basic_strategy_accuracy(agent)
+    percent = score["accuracy"] * 100
+    print(
+        "\nHard-total basic strategy match: "
+        f"{score['matches']} / {score['total']} cells = {percent:.2f}%"
+    )
 
 
 def main() -> None:
@@ -139,12 +181,17 @@ def main() -> None:
 
     agent, logs = train(episodes=args.episodes, seed=args.seed)
     summary = evaluate(agent, hands=args.eval_hands, seed=args.seed + 999)
+    strategy_score = basic_strategy_accuracy(agent)
+    summary["hard_total_strategy_matches"] = strategy_score["matches"]
+    summary["hard_total_strategy_total"] = strategy_score["total"]
+    summary["hard_total_strategy_accuracy"] = strategy_score["accuracy"]
 
     write_csv(args.out / "training_log.csv", logs)
     write_csv(args.out / "evaluation_summary.csv", [summary])
 
     print(summary)
     print_policy(agent)
+    print_basic_strategy_accuracy(agent)
     print(f"\nWrote logs to: {args.out}")
 
 
