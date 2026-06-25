@@ -62,8 +62,8 @@ def train(episodes: int, seed: int) -> tuple[QLearningAgent, list[dict[str, floa
     log_every = max(1, episodes // 20)
 
     for episode in range(1, episodes + 1):
-        # At first the agent explores a lot. Later it trusts what it learned.
-        epsilon = max(0.02, 0.30 * (1 - episode / episodes))
+        # Explore heavily at first, then settle into the learned policy.
+        epsilon = max(0.01, 1.0 - episode / (episodes * 0.5))
         window_profit += play_training_hand(env, agent, epsilon)
 
         if episode % log_every == 0:

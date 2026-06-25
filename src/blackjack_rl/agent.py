@@ -9,7 +9,7 @@ from .env import State
 class QLearningAgent:
     """A small Q-learning agent for Blackjack."""
 
-    def __init__(self, alpha: float = 0.05, gamma: float = 1.0, seed: int = 11):
+    def __init__(self, alpha: float = 0.02, gamma: float = 1.0, seed: int = 11):
         self.alpha = alpha
         self.gamma = gamma
         self.rng = Random(seed)
