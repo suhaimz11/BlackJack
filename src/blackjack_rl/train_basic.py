@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 from pathlib import Path
+from random import Random
 
 from .agent import QLearningAgent
 from .env import BlackjackEnv, State
@@ -23,10 +24,31 @@ HARD_TOTAL_BASIC_STRATEGY: dict[int, dict[int, str]] = {
 }
 
 
-def play_training_hand(env: BlackjackEnv, agent: QLearningAgent, epsilon: float) -> float:
+PracticeCell = tuple[int, int]
+
+
+def practice_cells() -> list[PracticeCell]:
+    cells = []
+    for player_total, dealer_table in HARD_TOTAL_BASIC_STRATEGY.items():
+        for dealer_upcard in dealer_table:
+            cells.append((player_total, dealer_upcard))
+    return cells
+
+
+def play_training_hand(
+    env: BlackjackEnv,
+    agent: QLearningAgent,
+    epsilon: float,
+    practice_cell: PracticeCell | None = None,
+) -> float:
     """Play one hand while learning from every action."""
 
-    state = env.reset()
+    if practice_cell is None:
+        state = env.reset()
+    else:
+        player_total, dealer_upcard = practice_cell
+        state = env.reset_to_hard_total(player_total, dealer_upcard)
+
     done = False
     total_reward = 0.0
 
@@ -52,11 +74,13 @@ def play_training_hand(env: BlackjackEnv, agent: QLearningAgent, epsilon: float)
     return total_reward
 
 
-def train(episodes: int, seed: int) -> tuple[QLearningAgent, list[dict[str, float | int]]]:
+def train(episodes: int, seed: int, practice_ratio: float) -> tuple[QLearningAgent, list[dict[str, float | int]]]:
     """Train the agent and keep progress logs."""
 
     env = BlackjackEnv(seed=seed)
     agent = QLearningAgent(seed=seed + 1)
+    practice_rng = Random(seed + 2)
+    cells = practice_cells()
     logs: list[dict[str, float | int]] = []
     window_profit = 0.0
     log_every = max(1, episodes // 20)
@@ -64,13 +88,18 @@ def train(episodes: int, seed: int) -> tuple[QLearningAgent, list[dict[str, floa
     for episode in range(1, episodes + 1):
         # Explore heavily at first, then settle into the learned policy.
         epsilon = max(0.01, 1.0 - episode / (episodes * 0.5))
-        window_profit += play_training_hand(env, agent, epsilon)
+        practice_cell = None
+        if practice_rng.random() < practice_ratio:
+            practice_cell = cells[(episode - 1) % len(cells)]
+
+        window_profit += play_training_hand(env, agent, epsilon, practice_cell)
 
         if episode % log_every == 0:
             logs.append(
                 {
                     "episode": episode,
                     "epsilon": round(epsilon, 4),
+                    "practice_ratio": practice_ratio,
                     "avg_profit_last_window": round(window_profit / log_every, 5),
                     "known_state_actions": len(agent.q),
                 }
@@ -177,11 +206,18 @@ def main() -> None:
     parser.add_argument("--eval-hands", type=int, default=10_000)
     parser.add_argument("--out", type=Path, default=Path("results_basic"))
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--practice-ratio",
+        type=float,
+        default=0.5,
+        help="Fraction of training hands started from hard-total practice states.",
+    )
     args = parser.parse_args()
 
-    agent, logs = train(episodes=args.episodes, seed=args.seed)
+    agent, logs = train(episodes=args.episodes, seed=args.seed, practice_ratio=args.practice_ratio)
     summary = evaluate(agent, hands=args.eval_hands, seed=args.seed + 999)
     strategy_score = basic_strategy_accuracy(agent)
+    summary["practice_ratio"] = args.practice_ratio
     summary["hard_total_strategy_matches"] = strategy_score["matches"]
     summary["hard_total_strategy_total"] = strategy_score["total"]
     summary["hard_total_strategy_accuracy"] = strategy_score["accuracy"]

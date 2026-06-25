@@ -19,6 +19,8 @@ In this first version, the player can choose only:
 
 The strategy is not hard-coded. Instead, the program uses Q-learning to learn which action is better in each state.
 
+During training, the program also uses practice states. This means some hands begin from important hard-total situations such as hard 12 vs dealer 4 or hard 16 vs dealer 10. These practice hands help the agent learn the Basic Strategy table more evenly.
+
 ## Files
 
 - `src/blackjack_rl/env.py`
@@ -45,6 +47,14 @@ From this folder:
 ```powershell
 python -m src.blackjack_rl.train_basic --episodes 50000 --eval-hands 10000 --out results_basic
 ```
+
+Practice states are enabled by default:
+
+```powershell
+python -m src.blackjack_rl.train_basic --episodes 50000 --eval-hands 10000 --practice-ratio 0.5 --out results_basic
+```
+
+Use `--practice-ratio 0` to train only from normal random hands.
 
 For a quicker test:
 
