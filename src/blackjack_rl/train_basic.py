@@ -114,16 +114,19 @@ def write_csv(path: Path, rows: list[dict]) -> None:
 
 
 def print_policy(agent: QLearningAgent) -> None:
-    """Print a small readable slice of the learned policy."""
+    """Print the learned policy for all dealer upcards."""
 
-    print("\nLearned policy sample, no usable ace:")
-    print("player_total | dealer 2 | dealer 7 | dealer 10")
+    dealer_cards = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    dealer_labels = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "A"]
+
+    print("\nLearned policy, no usable ace:")
+    print("player_total | " + " | ".join(f"{label:>5}" for label in dealer_labels))
     for player_total in range(12, 22):
         actions = []
-        for dealer_upcard in (2, 7, 10):
+        for dealer_upcard in dealer_cards:
             state = State(player_total, dealer_upcard, False)
             actions.append(agent.best_action(state, ("hit", "stand")))
-        print(f"{player_total:>12} | {actions[0]:>8} | {actions[1]:>8} | {actions[2]:>9}")
+        print(f"{player_total:>12} | " + " | ".join(f"{action:>5}" for action in actions))
 
 
 def main() -> None:
