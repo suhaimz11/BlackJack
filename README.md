@@ -20,6 +20,11 @@ In the current version, the player can choose:
 
 The strategy is not hard-coded. Instead, the program uses Q-learning to learn which action is better in each state. Doubling is available only as the first action of a hand.
 
+To avoid unrealistic double-down choices, doubling is restricted to common double-down situations:
+
+- hard totals 9, 10, and 11
+- soft totals 13 through 18
+
 During training, the program also uses practice states. This means some hands begin from important hard-total situations such as hard 12 vs dealer 4 or hard 16 vs dealer 10. These practice hands help the agent learn the Basic Strategy table more evenly.
 
 ## Files
@@ -132,5 +137,6 @@ The program creates:
 
 - `training_log.csv`
 - `evaluation_summary.csv`
+- `bet_by_count.csv` for point-count runs
 
 These files will later support the paper in Task P3.2.

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 import csv
+from collections import defaultdict
 from pathlib import Path
+from statistics import mean
 
 from .agent import QLearningAgent
 from .env import BlackjackEnv, State
@@ -129,7 +131,7 @@ def evaluate(
     decks: int,
     use_count_in_state: bool,
     variable_bet: bool,
-) -> dict[str, float | int]:
+) -> tuple[dict[str, float | int], list[dict[str, float | int | str]]]:
     """Evaluate one finite-shoe variant greedily."""
 
     env = BlackjackEnv(
@@ -143,10 +145,12 @@ def evaluate(
     wins = 0
     losses = 0
     pushes = 0
+    bets_by_count: dict[int, list[int]] = defaultdict(list)
 
     for _ in range(hands):
         state = env.reset()
         total_bet += env.bet
+        bets_by_count[state.true_count_bucket].append(env.bet)
         done = False
         hand_profit = 0.0
 
@@ -165,7 +169,7 @@ def evaluate(
         else:
             pushes += 1
 
-    return {
+    summary = {
         "hands": hands,
         "decks": decks,
         "use_count_in_state": use_count_in_state,
@@ -178,6 +182,15 @@ def evaluate(
         "push_rate": round(pushes / hands, 6),
         "learned_state_actions": len(agent.q),
     }
+    bet_rows = [
+        {
+            "true_count_bucket": bucket,
+            "avg_bet": round(mean(bets), 4),
+            "hands": len(bets),
+        }
+        for bucket, bets in sorted(bets_by_count.items())
+    ]
+    return summary, bet_rows
 
 
 def write_csv(path: Path, rows: list[dict]) -> None:
@@ -200,9 +213,28 @@ def print_count_policy_sample(agent: QLearningAgent) -> None:
     for bucket in count_buckets:
         actions = []
         for dealer_upcard in dealer_cards:
-            state = State(16, dealer_upcard, False, bucket, can_double=True)
-            actions.append(agent.best_action(state, ("hit", "stand", "double")))
+            state = State(16, dealer_upcard, False, bucket, can_double=False)
+            actions.append(agent.best_action(state, ("hit", "stand")))
         print(f"{bucket:>5} | " + " | ".join(f"{action:>5}" for action in actions))
+
+
+def print_bet_by_count(rows: list[dict[str, float | int | str]]) -> None:
+    """Print average initial bet by true-count bucket for each variant."""
+
+    if not rows:
+        return
+
+    print("\nAverage initial bet by true-count bucket:")
+    for variant in sorted({str(row["variant"]) for row in rows}):
+        print(f"\n{variant}")
+        variant_rows = [row for row in rows if row["variant"] == variant]
+        for row in sorted(variant_rows, key=lambda item: int(item["true_count_bucket"])):
+            bucket = int(row["true_count_bucket"])
+            print(
+                f"true count {bucket:+d}: "
+                f"avg_bet={float(row['avg_bet']):.3f}, "
+                f"n={int(row['hands'])}"
+            )
 
 
 def run_variant(
@@ -214,7 +246,12 @@ def run_variant(
     use_count_in_state: bool,
     variable_bet: bool,
     pretrain_episodes: int,
-) -> tuple[QLearningAgent, list[dict[str, float | int | str]], dict[str, float | int | str | bool]]:
+) -> tuple[
+    QLearningAgent,
+    list[dict[str, float | int | str]],
+    dict[str, float | int | str | bool],
+    list[dict[str, float | int | str]],
+]:
     initial_agent = None
     if use_count_in_state and pretrain_episodes > 0:
         initial_agent = pretrain_count_agent(
@@ -235,7 +272,7 @@ def run_variant(
         row["variant"] = name
         row["pretrain_episodes"] = pretrain_episodes if use_count_in_state else 0
 
-    summary = evaluate(
+    summary, bet_rows = evaluate(
         agent=agent,
         hands=eval_hands,
         seed=seed + 999,
@@ -245,7 +282,9 @@ def run_variant(
     )
     summary["variant"] = name
     summary["pretrain_episodes"] = pretrain_episodes if use_count_in_state else 0
-    return agent, logs, summary
+    for row in bet_rows:
+        row["variant"] = name
+    return agent, logs, summary, bet_rows
 
 
 def main() -> None:
@@ -272,10 +311,11 @@ def main() -> None:
     if args.mode == "compare":
         all_logs: list[dict[str, float | int | str]] = []
         summaries: list[dict[str, float | int | str | bool]] = []
+        all_bet_rows: list[dict[str, float | int | str]] = []
         last_count_agent: QLearningAgent | None = None
 
         for index, variant in enumerate(COUNT_VARIANTS):
-            agent, logs, summary = run_variant(
+            agent, logs, summary, bet_rows = run_variant(
                 name=variant["name"],
                 episodes=args.episodes,
                 eval_hands=args.eval_hands,
@@ -287,18 +327,21 @@ def main() -> None:
             )
             all_logs.extend(logs)
             summaries.append(summary)
+            all_bet_rows.extend(bet_rows)
             print(summary)
             if variant["use_count_in_state"]:
                 last_count_agent = agent
 
         write_csv(args.out / "training_log.csv", all_logs)
         write_csv(args.out / "evaluation_summary.csv", summaries)
+        write_csv(args.out / "bet_by_count.csv", all_bet_rows)
         if last_count_agent is not None:
             print_count_policy_sample(last_count_agent)
+        print_bet_by_count(all_bet_rows)
         print(f"\nWrote logs to: {args.out}")
         return
 
-    agent, logs, summary = run_variant(
+    agent, logs, summary, bet_rows = run_variant(
         name="count_state_variable_bet",
         episodes=args.episodes,
         eval_hands=args.eval_hands,
@@ -311,9 +354,11 @@ def main() -> None:
 
     write_csv(args.out / "training_log.csv", logs)
     write_csv(args.out / "evaluation_summary.csv", [summary])
+    write_csv(args.out / "bet_by_count.csv", bet_rows)
 
     print(summary)
     print_count_policy_sample(agent)
+    print_bet_by_count(bet_rows)
     print(f"\nWrote logs to: {args.out}")
 
 
