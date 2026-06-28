@@ -4,9 +4,22 @@ from dataclasses import dataclass
 from random import Random
 
 
-# In this simple project, a card is stored as its Blackjack value.
+# In this project, a card is stored as its Blackjack value.
 # Example: Jack, Queen, King are all stored as 10. Ace starts as 11.
 Card = int
+
+CPCS_COUNT_VALUES = {
+    2: 1,
+    3: 1,
+    4: 1,
+    5: 1,
+    6: 1,
+    7: 0,
+    8: 0,
+    9: 0,
+    10: -1,
+    11: -1,
+}
 
 
 @dataclass(frozen=True)
@@ -18,10 +31,11 @@ class State:
     usable_ace: bool
     true_count_bucket: int = 0
     can_double: bool = False
+    can_split: bool = False
 
 
 class Shoe:
-    """A finite Blackjack shoe that keeps a Hi-Lo running count."""
+    """A finite Blackjack shoe that keeps a CPCS-style running count."""
 
     def __init__(self, decks: int, penetration: float, rng: Random):
         self.decks = decks
@@ -48,11 +62,11 @@ class Shoe:
             self.shuffle()
         card = self.cards.pop()
         if update_count:
-            self.running_count += hi_lo_value(card)
+            self.running_count += cpcs_count_value(card)
         return card
 
     def count_seen_card(self, card: Card) -> None:
-        self.running_count += hi_lo_value(card)
+        self.running_count += cpcs_count_value(card)
 
     @property
     def true_count(self) -> float:
@@ -67,14 +81,10 @@ def draw_card(rng: Random) -> Card:
     return rng.choice(cards)
 
 
-def hi_lo_value(card: Card) -> int:
-    """Return the Hi-Lo count value of a card."""
+def cpcs_count_value(card: Card) -> int:
+    """Return the Complete Point-Count style value of a card."""
 
-    if 2 <= card <= 6:
-        return 1
-    if card in (10, 11):
-        return -1
-    return 0
+    return CPCS_COUNT_VALUES[card]
 
 
 def count_bucket(true_count: float) -> int:
@@ -129,6 +139,12 @@ def can_double_hand(hand: list[Card]) -> bool:
     return 9 <= total <= 11
 
 
+def can_split_hand(hand: list[Card]) -> bool:
+    """Allow one split when the first two cards have the same Blackjack value."""
+
+    return len(hand) == 2 and hand[0] == hand[1]
+
+
 class BlackjackEnv:
     """A minimal Blackjack environment for learning basic strategy."""
 
@@ -145,6 +161,10 @@ class BlackjackEnv:
         self.use_count_in_state = use_count_in_state
         self.variable_bet = variable_bet
         self.player: list[Card] = []
+        self.pending_hands: list[tuple[list[Card], int, bool]] = []
+        self.finished_hands: list[tuple[list[Card], int]] = []
+        self.split_used = False
+        self.current_split_aces = False
         self.dealer: list[Card] = []
         self.dealer_hole_counted = False
         self.bet = 1
@@ -173,6 +193,10 @@ class BlackjackEnv:
 
         self.bet = bet_units(self.current_true_count(), self.variable_bet)
         self.player = [self.draw(), self.draw()]
+        self.pending_hands = []
+        self.finished_hands = []
+        self.split_used = False
+        self.current_split_aces = False
         self.dealer = [self.draw(), self.draw(visible=False)]
         self.dealer_hole_counted = False
         self.done = False
@@ -193,6 +217,48 @@ class BlackjackEnv:
             self.player = [10, 9, 2]
 
         self.bet = 1
+        self.pending_hands = []
+        self.finished_hands = []
+        self.split_used = False
+        self.current_split_aces = False
+        self.dealer = [dealer_upcard, self.draw(visible=False)]
+        self.dealer_hole_counted = False
+        self.done = False
+        return self.state()
+
+    def reset_to_pair(self, pair_card: int, dealer_upcard: int) -> State:
+        """Start a practice hand from a chosen pair and dealer upcard."""
+
+        if pair_card not in [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]:
+            raise ValueError("Pair card must be 2-10 or 11 for aces.")
+        if dealer_upcard not in [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]:
+            raise ValueError("Dealer upcard must be 2-10 or 11 for ace.")
+
+        self.player = [pair_card, pair_card]
+        self.bet = 1
+        self.pending_hands = []
+        self.finished_hands = []
+        self.split_used = False
+        self.current_split_aces = False
+        self.dealer = [dealer_upcard, self.draw(visible=False)]
+        self.dealer_hole_counted = False
+        self.done = False
+        return self.state()
+
+    def reset_to_soft_total(self, soft_total: int, dealer_upcard: int) -> State:
+        """Start a practice hand from a chosen soft total and dealer upcard."""
+
+        if not 13 <= soft_total <= 21:
+            raise ValueError("Practice soft total must be between 13 and 21.")
+        if dealer_upcard not in [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]:
+            raise ValueError("Dealer upcard must be 2-10 or 11 for ace.")
+
+        self.player = [11, soft_total - 11]
+        self.bet = 1
+        self.pending_hands = []
+        self.finished_hands = []
+        self.split_used = False
+        self.current_split_aces = False
         self.dealer = [dealer_upcard, self.draw(visible=False)]
         self.dealer_hole_counted = False
         self.done = False
@@ -206,12 +272,19 @@ class BlackjackEnv:
             usable_ace=usable_ace,
             true_count_bucket=count_bucket(self.current_true_count()) if self.use_count_in_state else 0,
             can_double=can_double_hand(self.player),
+            can_split=can_split_hand(self.player) and not self.split_used,
         )
 
     def legal_actions(self) -> tuple[str, ...]:
+        if self.current_split_aces:
+            return ("stand",)
+
+        actions = ["hit", "stand"]
         if can_double_hand(self.player):
-            return ("hit", "stand", "double")
-        return ("hit", "stand")
+            actions.append("double")
+        if can_split_hand(self.player) and not self.split_used:
+            actions.append("split")
+        return tuple(actions)
 
     def step(self, action: str) -> tuple[State | None, float, bool]:
         """Apply one action.
@@ -230,8 +303,7 @@ class BlackjackEnv:
             player_total, _ = hand_value(self.player)
 
             if player_total > 21:
-                self.done = True
-                return None, -float(self.bet), True
+                return self.complete_current_hand()
 
             return self.state(), 0.0, False
 
@@ -243,28 +315,59 @@ class BlackjackEnv:
             player_total, _ = hand_value(self.player)
 
             if player_total > 21:
-                self.done = True
-                return None, -float(self.bet), True
+                return self.complete_current_hand()
 
-            return self.finish_round()
+            return self.complete_current_hand()
+
+        if action == "split":
+            if not can_split_hand(self.player) or self.split_used:
+                raise ValueError("Split is not legal for this hand.")
+            first_card, second_card = self.player
+            split_aces = first_card == 11
+            first_hand = [first_card, self.draw()]
+            second_hand = [second_card, self.draw()]
+            self.player = first_hand
+            self.pending_hands = [(second_hand, self.bet, split_aces)]
+            self.current_split_aces = split_aces
+            self.split_used = True
+            return self.state(), 0.0, False
 
         if action == "stand":
-            return self.finish_round()
+            return self.complete_current_hand()
 
         raise ValueError(f"Unknown action: {action}")
 
+    def complete_current_hand(self) -> tuple[State | None, float, bool]:
+        """Store the current player hand and continue or finish the round."""
+
+        self.finished_hands.append((self.player, self.bet))
+
+        if self.pending_hands:
+            next_hand, next_bet, split_aces = self.pending_hands.pop(0)
+            self.player = next_hand
+            self.bet = next_bet
+            self.current_split_aces = split_aces
+            return self.state(), 0.0, False
+
+        return self.finish_round()
+
     def finish_round(self) -> tuple[None, float, bool]:
-        """Let the dealer play, then decide win/loss/push."""
+        """Let the dealer play, then decide win/loss/push for all player hands."""
 
         self.done = True
 
-        if is_blackjack(self.player) and not is_blackjack(self.dealer):
+        if not self.finished_hands:
+            self.finished_hands.append((self.player, self.bet))
+
+        single_unsplit_hand = len(self.finished_hands) == 1 and not self.split_used
+
+        if single_unsplit_hand and is_blackjack(self.player) and not is_blackjack(self.dealer):
             self.reveal_dealer_hole()
             return None, float(self.bet), True
-        if is_blackjack(self.dealer) and not is_blackjack(self.player):
+        if single_unsplit_hand and is_blackjack(self.dealer) and not is_blackjack(self.player):
             self.reveal_dealer_hole()
             return None, -float(self.bet), True
-        if is_blackjack(self.player) and is_blackjack(self.dealer):
+        if single_unsplit_hand and is_blackjack(self.player) and is_blackjack(self.dealer):
             self.reveal_dealer_hole()
             return None, 0.0, True
 
@@ -276,11 +379,16 @@ class BlackjackEnv:
                 break
             self.dealer.append(self.draw())
 
-        player_total, _ = hand_value(self.player)
         dealer_total, _ = hand_value(self.dealer)
 
-        if dealer_total > 21 or player_total > dealer_total:
-            return None, float(self.bet), True
-        if player_total < dealer_total:
-            return None, -float(self.bet), True
-        return None, 0.0, True
+        total_reward = 0.0
+        for hand, bet in self.finished_hands:
+            player_total, _ = hand_value(hand)
+            if player_total > 21:
+                total_reward -= float(bet)
+            elif dealer_total > 21 or player_total > dealer_total:
+                total_reward += float(bet)
+            elif player_total < dealer_total:
+                total_reward -= float(bet)
+
+        return None, total_reward, True

@@ -32,7 +32,7 @@ COUNT_BUCKETS = list(range(-5, 6))
 
 
 def play_training_hand(env: BlackjackEnv, agent: QLearningAgent, epsilon: float) -> float:
-    """Play one counted-shoe hand while learning."""
+    """Play one CPCS counted-shoe hand while learning."""
 
     state = env.reset()
     done = False
@@ -118,6 +118,8 @@ def pretrain_count_agent(episodes: int, seed: int, decks: int) -> QLearningAgent
                 dealer_upcard=state.dealer_upcard,
                 usable_ace=state.usable_ace,
                 true_count_bucket=bucket,
+                can_double=state.can_double,
+                can_split=state.can_split,
             )
             count_agent.q[(count_state, action)] = value
 
@@ -288,7 +290,7 @@ def run_variant(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Train a Blackjack point-count Q-learning player.")
+    parser = argparse.ArgumentParser(description="Train a Blackjack CPCS-style Q-learning player.")
     parser.add_argument("--episodes", type=int, default=100_000)
     parser.add_argument("--eval-hands", type=int, default=20_000)
     parser.add_argument("--decks", type=int, default=6)
@@ -304,7 +306,7 @@ def main() -> None:
         "--mode",
         choices=["count", "compare"],
         default="count",
-        help="count runs the required count+variable-bet scenario; compare runs three diagnostic variants.",
+        help="count runs the required CPCS+variable-bet scenario; compare runs three diagnostic variants.",
     )
     args = parser.parse_args()
 

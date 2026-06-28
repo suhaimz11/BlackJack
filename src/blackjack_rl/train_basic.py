@@ -6,13 +6,13 @@ from pathlib import Path
 from random import Random
 
 from .agent import QLearningAgent
-from .env import BlackjackEnv, State, can_double_hand
+from .env import BlackjackEnv, State, can_double_hand, can_split_hand
 
 
 DEALER_CARDS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
 DEALER_LABELS = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "A"]
 
-# Standard hard-total basic strategy for hit/stand only.
+# Standard hard-total Basic Strategy, following the Thorp-style reference table.
 # A dealer ace is represented as 11 in the code.
 HARD_TOTAL_BASIC_STRATEGY: dict[int, dict[int, str]] = {
     12: {2: "hit", 3: "hit", 4: "stand", 5: "stand", 6: "stand", 7: "hit", 8: "hit", 9: "hit", 10: "hit", 11: "hit"},
@@ -23,15 +23,58 @@ HARD_TOTAL_BASIC_STRATEGY: dict[int, dict[int, str]] = {
     17: {2: "stand", 3: "stand", 4: "stand", 5: "stand", 6: "stand", 7: "stand", 8: "stand", 9: "stand", 10: "stand", 11: "stand"},
 }
 
+# Simplified pair-splitting rule described in Thorp's Basic Strategy chapter:
+# always split aces/eights; never split fours/fives/tens; split other pairs
+# against dealer 3 through 7.
+PAIR_SPLIT_STRATEGY: dict[int, dict[int, bool]] = {
+    pair: {
+        dealer: (
+            pair in (8, 11)
+            or (pair not in (4, 5, 10) and 3 <= dealer <= 7)
+        )
+        for dealer in DEALER_CARDS
+    }
+    for pair in DEALER_CARDS
+}
 
-PracticeCell = tuple[int, int]
+SOFT_TOTAL_STAND_STRATEGY: dict[int, dict[int, str]] = {
+    soft_total: {
+        dealer: (
+            "stand"
+            if soft_total >= 19 or (soft_total == 18 and dealer <= 8)
+            else "hit"
+        )
+        for dealer in DEALER_CARDS
+    }
+    for soft_total in range(13, 22)
+}
+
+DOUBLE_DOWN_STRATEGY: dict[str, dict[int, dict[int, bool]]] = {
+    "hard": {
+        10: {dealer: 2 <= dealer <= 9 for dealer in DEALER_CARDS},
+        11: {dealer: True for dealer in DEALER_CARDS},
+    },
+    "soft": {
+        soft_total: {dealer: 2 <= dealer <= 6 for dealer in DEALER_CARDS}
+        for soft_total in range(13, 19)
+    },
+}
+
+
+PracticeCell = tuple[str, int, int]
 
 
 def practice_cells() -> list[PracticeCell]:
     cells = []
     for player_total, dealer_table in HARD_TOTAL_BASIC_STRATEGY.items():
         for dealer_upcard in dealer_table:
-            cells.append((player_total, dealer_upcard))
+            cells.append(("hard", player_total, dealer_upcard))
+    for pair_card, dealer_table in PAIR_SPLIT_STRATEGY.items():
+        for dealer_upcard in dealer_table:
+            cells.append(("pair", pair_card, dealer_upcard))
+    for soft_total, dealer_table in SOFT_TOTAL_STAND_STRATEGY.items():
+        for dealer_upcard in dealer_table:
+            cells.append(("soft", soft_total, dealer_upcard))
     return cells
 
 
@@ -46,8 +89,13 @@ def play_training_hand(
     if practice_cell is None:
         state = env.reset()
     else:
-        player_total, dealer_upcard = practice_cell
-        state = env.reset_to_hard_total(player_total, dealer_upcard)
+        kind, value, dealer_upcard = practice_cell
+        if kind == "pair":
+            state = env.reset_to_pair(value, dealer_upcard)
+        elif kind == "soft":
+            state = env.reset_to_soft_total(value, dealer_upcard)
+        else:
+            state = env.reset_to_hard_total(value, dealer_upcard)
 
     done = False
     total_reward = 0.0
@@ -165,7 +213,13 @@ def print_policy(agent: QLearningAgent) -> None:
     for player_total in range(12, 22):
         actions = []
         for dealer_upcard in DEALER_CARDS:
-            state = State(player_total, dealer_upcard, False, can_double=can_double_hand([10, player_total - 10]))
+            state = State(
+                player_total,
+                dealer_upcard,
+                False,
+                can_double=can_double_hand([10, player_total - 10]),
+                can_split=False,
+            )
             actions.append(agent.best_action(state, ("hit", "stand")))
         print(f"{player_total:>12} | " + " | ".join(f"{action:>5}" for action in actions))
 
@@ -191,12 +245,134 @@ def basic_strategy_accuracy(agent: QLearningAgent) -> dict[str, float | int]:
     }
 
 
+def pair_split_accuracy(agent: QLearningAgent) -> dict[str, float | int]:
+    """Compare learned split/no-split choices with the pair-splitting rule."""
+
+    matches = 0
+    total = 0
+
+    for pair_card, dealer_table in PAIR_SPLIT_STRATEGY.items():
+        for dealer_upcard, should_split in dealer_table.items():
+            hand = [pair_card, pair_card]
+            total_value, usable_ace = (12, True) if pair_card == 11 else (pair_card * 2, False)
+            state = State(
+                total_value,
+                dealer_upcard,
+                usable_ace,
+                can_double=can_double_hand(hand),
+                can_split=can_split_hand(hand),
+            )
+            legal_actions = ["hit", "stand"]
+            if can_double_hand(hand):
+                legal_actions.append("double")
+            legal_actions.append("split")
+            learned_action = agent.best_action(state, tuple(legal_actions))
+            learned_split = learned_action == "split"
+            if learned_split == should_split:
+                matches += 1
+            total += 1
+
+    return {
+        "matches": matches,
+        "total": total,
+        "accuracy": round(matches / total, 4),
+    }
+
+
+def soft_strategy_accuracy(agent: QLearningAgent) -> dict[str, float | int]:
+    """Compare learned soft-total hit/stand choices with the reference rule."""
+
+    matches = 0
+    total = 0
+
+    for soft_total, dealer_table in SOFT_TOTAL_STAND_STRATEGY.items():
+        for dealer_upcard, expected_action in dealer_table.items():
+            state = State(
+                soft_total,
+                dealer_upcard,
+                True,
+                can_double=can_double_hand([11, soft_total - 11]),
+                can_split=False,
+            )
+            learned_action = agent.best_action(state, ("hit", "stand"))
+            if learned_action == expected_action:
+                matches += 1
+            total += 1
+
+    return {
+        "matches": matches,
+        "total": total,
+        "accuracy": round(matches / total, 4),
+    }
+
+
+def double_strategy_accuracy(agent: QLearningAgent) -> dict[str, float | int]:
+    """Compare learned double/no-double choices with the double-down rule."""
+
+    matches = 0
+    total = 0
+
+    for hard_total, dealer_table in DOUBLE_DOWN_STRATEGY["hard"].items():
+        hand = [4, 6] if hard_total == 10 else [5, 6]
+        for dealer_upcard, should_double in dealer_table.items():
+            state = State(
+                hard_total,
+                dealer_upcard,
+                False,
+                can_double=can_double_hand(hand),
+                can_split=False,
+            )
+            learned_action = agent.best_action(state, ("hit", "stand", "double"))
+            if (learned_action == "double") == should_double:
+                matches += 1
+            total += 1
+
+    for soft_total, dealer_table in DOUBLE_DOWN_STRATEGY["soft"].items():
+        hand = [11, soft_total - 11]
+        for dealer_upcard, should_double in dealer_table.items():
+            state = State(
+                soft_total,
+                dealer_upcard,
+                True,
+                can_double=can_double_hand(hand),
+                can_split=False,
+            )
+            learned_action = agent.best_action(state, ("hit", "stand", "double"))
+            if (learned_action == "double") == should_double:
+                matches += 1
+            total += 1
+
+    return {
+        "matches": matches,
+        "total": total,
+        "accuracy": round(matches / total, 4),
+    }
+
+
 def print_basic_strategy_accuracy(agent: QLearningAgent) -> None:
-    score = basic_strategy_accuracy(agent)
-    percent = score["accuracy"] * 100
+    hard_score = basic_strategy_accuracy(agent)
+    soft_score = soft_strategy_accuracy(agent)
+    double_score = double_strategy_accuracy(agent)
+    split_score = pair_split_accuracy(agent)
+    hard_percent = hard_score["accuracy"] * 100
+    soft_percent = soft_score["accuracy"] * 100
+    double_percent = double_score["accuracy"] * 100
+    split_percent = split_score["accuracy"] * 100
     print(
         "\nHard-total basic strategy match: "
-        f"{score['matches']} / {score['total']} cells = {percent:.2f}%"
+        f"{hard_score['matches']} / {hard_score['total']} cells = {hard_percent:.2f}%"
+    )
+    print(
+        "Soft-total basic strategy match: "
+        f"{soft_score['matches']} / {soft_score['total']} cells = {soft_percent:.2f}%"
+    )
+    print(
+        "Double-down strategy match: "
+        f"{double_score['matches']} / {double_score['total']} cells = {double_percent:.2f}%"
+    )
+    print(
+        "Pair-splitting strategy match: "
+        f"{split_score['matches']} / {split_score['total']} cells = {split_percent:.2f}%"
     )
 
 
@@ -217,10 +393,22 @@ def main() -> None:
     agent, logs = train(episodes=args.episodes, seed=args.seed, practice_ratio=args.practice_ratio)
     summary = evaluate(agent, hands=args.eval_hands, seed=args.seed + 999)
     strategy_score = basic_strategy_accuracy(agent)
+    soft_score = soft_strategy_accuracy(agent)
+    double_score = double_strategy_accuracy(agent)
+    split_score = pair_split_accuracy(agent)
     summary["practice_ratio"] = args.practice_ratio
     summary["hard_total_strategy_matches"] = strategy_score["matches"]
     summary["hard_total_strategy_total"] = strategy_score["total"]
     summary["hard_total_strategy_accuracy"] = strategy_score["accuracy"]
+    summary["soft_total_strategy_matches"] = soft_score["matches"]
+    summary["soft_total_strategy_total"] = soft_score["total"]
+    summary["soft_total_strategy_accuracy"] = soft_score["accuracy"]
+    summary["double_strategy_matches"] = double_score["matches"]
+    summary["double_strategy_total"] = double_score["total"]
+    summary["double_strategy_accuracy"] = double_score["accuracy"]
+    summary["pair_split_strategy_matches"] = split_score["matches"]
+    summary["pair_split_strategy_total"] = split_score["total"]
+    summary["pair_split_strategy_accuracy"] = split_score["accuracy"]
 
     write_csv(args.out / "training_log.csv", logs)
     write_csv(args.out / "evaluation_summary.csv", [summary])

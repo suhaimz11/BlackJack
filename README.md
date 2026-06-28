@@ -6,7 +6,7 @@ We are building a self-learning Blackjack player step by step.
 
 ## Step 1: Basic Strategy Scenario
 
-In normal Blackjack, a basic strategy player decides what to do from information like:
+The first scenario targets the Basic Strategy described in Edward O. Thorp's *Beat the Dealer* (1966). In normal Blackjack, a basic strategy player decides what to do from information like:
 
 - the player's current hand total
 - the dealer's visible card
@@ -17,13 +17,16 @@ In the current version, the player can choose:
 - `hit`
 - `stand`
 - `double`
+- `split`
 
-The strategy is not hard-coded. Instead, the program uses Q-learning to learn which action is better in each state. Doubling is available only as the first action of a hand.
+The strategy is not hard-coded. Instead, the program uses Q-learning to learn which action is better in each state. The learned hard-total and pair-splitting policies are compared against Basic Strategy reference rules for validation. Doubling is available only as the first action of a hand.
 
 To avoid unrealistic double-down choices, doubling is restricted to common double-down situations:
 
 - hard totals 9, 10, and 11
 - soft totals 13 through 18
+
+Pair splitting is available when the first two cards have the same Blackjack value. This implementation allows one split per original hand. Insurance is not offered, following the Basic Strategy instruction to never insure.
 
 During training, the program also uses practice states. This means some hands begin from important hard-total situations such as hard 12 vs dealer 4 or hard 16 vs dealer 10. These practice hands help the agent learn the Basic Strategy table more evenly.
 
@@ -48,7 +51,7 @@ During training, the program also uses practice states. This means some hands be
 
 - `src/blackjack_rl/train_count.py`
   - Trains the point-count scenario.
-  - Uses a finite shoe and Hi-Lo count.
+  - Uses a finite shoe and Complete Point-Count style card weights.
   - Adjusts the bet based on the true count.
 
 ## Run
@@ -67,11 +70,11 @@ python -m src.blackjack_rl.train_basic --episodes 50000 --eval-hands 10000 --pra
 
 Use `--practice-ratio 0` to train only from normal random hands.
 
-## Step 2: Point-Count Scenario
+## Step 2: Complete Point-Count Scenario
 
-The second scenario adds a finite Blackjack shoe and a Hi-Lo point count.
+The second scenario adds a finite Blackjack shoe and a Complete Point-Count style system.
 
-Hi-Lo counting works like this:
+The implemented point-count card weights are:
 
 - cards 2-6 add `+1`
 - cards 7-9 add `0`
@@ -79,14 +82,14 @@ Hi-Lo counting works like this:
 
 The program converts the running count into a true count by dividing by the approximate number of decks remaining. The state now includes a rounded true-count bucket.
 
-For the portfolio task, this is the implemented point-count system:
+For the portfolio task, this is the implemented Complete Point-Count style system:
 
 - finite 6-deck shoe by default
 - reshuffle after 75% shoe penetration
 - visible cards update the running count
 - the dealer hole card is counted only when revealed
 - true count is rounded and clipped into buckets from `-5` to `5`
-- the RL state becomes player total, dealer upcard, usable ace, true-count bucket, and whether double is legal
+- the RL state becomes player total, dealer upcard, usable ace, true-count bucket, whether double is legal, and whether split is legal
 
 The bet also changes:
 
