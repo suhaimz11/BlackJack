@@ -49,7 +49,6 @@ def evaluate_with_backcounting(
             env.shoe.maybe_shuffle()
             # Burn one visible card to advance the shoe/count without risking money.
             env.draw(visible=True)
-            pushes += 1
             continue
 
         state = env.reset()
@@ -83,12 +82,13 @@ def evaluate_with_backcounting(
         "variable_bet": True,
         "skip_unfavorable": True,
         "total_profit": round(profit, 4),
-        "avg_profit_per_hand": round(profit / hands, 6),
+        "avg_profit_per_opportunity": round(profit / hands, 6),
         "avg_profit_per_played_hand": round(profit / played_hands, 6) if played_hands else 0,
         "avg_initial_bet": round(total_bet / played_hands, 4) if played_hands else 0,
-        "win_rate": round(wins / hands, 6),
-        "loss_rate": round(losses / hands, 6),
-        "push_rate": round(pushes / hands, 6),
+        "win_rate": round(wins / played_hands, 6) if played_hands else 0,
+        "loss_rate": round(losses / played_hands, 6) if played_hands else 0,
+        "push_rate": round(pushes / played_hands, 6) if played_hands else 0,
+        "skip_rate": round(skipped / hands, 6),
         "learned_state_actions": len(agent.q),
     }
     bet_rows = [
