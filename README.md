@@ -68,6 +68,9 @@ During training, the program also uses practice states. This means some hands be
     - blackjack pays 6:5
   - Tests both Basic Strategy MC and CPCS Q-learning under each variation.
 
+- `src/blackjack_rl/train_improved_cpcs.py`
+  - Compares standard 6-deck CPCS with an improved single-deck CPCS setup.
+
 ## Run
 
 From this folder:
@@ -178,6 +181,22 @@ For a quick smoke test:
 
 ```powershell
 python -m src.blackjack_rl.train_variations --episodes-basic 1000 --episodes-cpcs 1000 --eval-hands 500 --out results_variations_smoke
+```
+
+## Step 4: Improved CPCS
+
+The fourth scenario improves the CPCS system by using a single-deck shoe. Card counting is more informative with fewer decks because each visible card changes the remaining shoe composition more strongly.
+
+Run the improved CPCS comparison:
+
+```powershell
+python -m src.blackjack_rl.train_improved_cpcs --pretrain-episodes 300000 --episodes 300000 --eval-hands 30000 --out results_improved_cpcs
+```
+
+For a quick smoke test:
+
+```powershell
+python -m src.blackjack_rl.train_improved_cpcs --pretrain-episodes 1000 --episodes 1000 --eval-hands 500 --out results_improved_cpcs_smoke
 ```
 
 For a quicker test:

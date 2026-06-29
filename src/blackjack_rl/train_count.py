@@ -197,8 +197,9 @@ def evaluate(
 
 def write_csv(path: Path, rows: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = sorted({field for row in rows for field in row})
     with path.open("w", newline="", encoding="utf-8") as file:
-        writer = csv.DictWriter(file, fieldnames=list(rows[0].keys()))
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
 
@@ -269,7 +270,7 @@ def print_bet_by_count(rows: list[dict[str, float | int | str]]) -> None:
     for variant in sorted({str(row["variant"]) for row in rows}):
         print(f"\n{variant}")
         variant_rows = [row for row in rows if row["variant"] == variant]
-        band_order = {"0": 0, "<=2": 1, "3-5": 2, "6-7": 3, "8-9": 4, ">=10": 5}
+        band_order = {"0": 0, "<=2": 1, "skipped_<=2": 1, "3-5": 2, "6-7": 3, "8-9": 4, ">=10": 5}
         for row in sorted(variant_rows, key=lambda item: band_order[str(item["betting_index_band"])]):
             band = str(row["betting_index_band"])
             print(
