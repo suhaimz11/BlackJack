@@ -29,7 +29,7 @@ class State:
     player_total: int
     dealer_upcard: int
     usable_ace: bool
-    true_count_bucket: int = 0
+    high_low_index_bucket: int = 0
     can_double: bool = False
     can_split: bool = False
 
@@ -69,9 +69,9 @@ class Shoe:
         self.running_count += cpcs_count_value(card)
 
     @property
-    def true_count(self) -> float:
-        decks_remaining = max(len(self.cards) / 52, 0.25)
-        return self.running_count / decks_remaining
+    def high_low_index(self) -> float:
+        unseen_cards = max(len(self.cards), 1)
+        return 100 * self.running_count / unseen_cards
 
 
 def draw_card(rng: Random) -> Card:
@@ -87,24 +87,40 @@ def cpcs_count_value(card: Card) -> int:
     return CPCS_COUNT_VALUES[card]
 
 
-def count_bucket(true_count: float) -> int:
-    """Keep the count state small by rounding and clipping true count."""
+def index_bucket(high_low_index: float) -> int:
+    """Keep the CPCS index state small by rounding and clipping the index."""
 
-    return max(-5, min(5, round(true_count)))
+    return max(-20, min(20, round(high_low_index)))
 
 
-def bet_units(true_count: float, variable_bet: bool) -> int:
-    """Conservative bet spread: bet more only when the count is clearly favorable."""
+def bet_units(high_low_index: float, variable_bet: bool) -> int:
+    """Thorp CPCS bet spread based on the high-low index."""
 
     if not variable_bet:
         return 1
-    if true_count < 2:
+    if high_low_index <= 2:
         return 1
-    if true_count < 3:
+    if high_low_index < 6:
         return 2
-    if true_count < 4:
+    if high_low_index < 8:
         return 3
-    return 4
+    if high_low_index < 10:
+        return 4
+    return 5
+
+
+def betting_index_band(high_low_index: float) -> str:
+    """Return the CPCS betting band used for diagnostics."""
+
+    if high_low_index <= 2:
+        return "<=2"
+    if high_low_index < 6:
+        return "3-5"
+    if high_low_index < 8:
+        return "6-7"
+    if high_low_index < 10:
+        return "8-9"
+    return ">=10"
 
 
 def hand_value(hand: list[Card]) -> tuple[int, bool]:
@@ -168,6 +184,8 @@ class BlackjackEnv:
         self.dealer: list[Card] = []
         self.dealer_hole_counted = False
         self.bet = 1
+        self.bet_index_bucket = 0
+        self.bet_index_band = "<=2"
         self.done = False
 
     def draw(self, visible: bool = True) -> Card:
@@ -180,10 +198,10 @@ class BlackjackEnv:
             self.shoe.count_seen_card(self.dealer[1])
         self.dealer_hole_counted = True
 
-    def current_true_count(self) -> float:
+    def current_high_low_index(self) -> float:
         if self.shoe is None:
             return 0.0
-        return self.shoe.true_count
+        return self.shoe.high_low_index
 
     def reset(self) -> State:
         """Start a new hand and return the first state."""
@@ -191,7 +209,10 @@ class BlackjackEnv:
         if self.shoe is not None:
             self.shoe.maybe_shuffle()
 
-        self.bet = bet_units(self.current_true_count(), self.variable_bet)
+        betting_index = self.current_high_low_index()
+        self.bet = bet_units(betting_index, self.variable_bet)
+        self.bet_index_bucket = index_bucket(betting_index) if self.use_count_in_state else 0
+        self.bet_index_band = betting_index_band(betting_index) if self.use_count_in_state else "0"
         self.player = [self.draw(), self.draw()]
         self.pending_hands = []
         self.finished_hands = []
@@ -272,7 +293,7 @@ class BlackjackEnv:
             player_total=total,
             dealer_upcard=self.dealer[0],
             usable_ace=usable_ace,
-            true_count_bucket=count_bucket(self.current_true_count()) if self.use_count_in_state else 0,
+            high_low_index_bucket=index_bucket(self.current_high_low_index()) if self.use_count_in_state else 0,
             can_double=can_double_hand(self.player),
             can_split=can_split_hand(self.player) and not self.split_used,
         )

@@ -69,24 +69,38 @@ DOUBLE_DOWN_STRATEGY: dict[str, dict[int, dict[int, bool]]] = {
 PracticeCell = tuple[str, int, int]
 
 
-def practice_cells() -> list[PracticeCell]:
-    cells = []
+def practice_cells_by_category() -> dict[str, list[PracticeCell]]:
+    categories: dict[str, list[PracticeCell]] = {
+        "draw_stand": [],
+        "double": [],
+        "split": [],
+    }
+
     for player_total, dealer_table in HARD_TOTAL_BASIC_STRATEGY.items():
         for dealer_upcard in dealer_table:
-            cells.append(("hard", player_total, dealer_upcard))
-    for pair_card, dealer_table in PAIR_SPLIT_STRATEGY.items():
-        for dealer_upcard in dealer_table:
-            cells.append(("pair", pair_card, dealer_upcard))
+            categories["draw_stand"].append(("hard", player_total, dealer_upcard))
     for soft_total, dealer_table in SOFT_TOTAL_STAND_STRATEGY.items():
         for dealer_upcard in dealer_table:
-            cells.append(("soft", soft_total, dealer_upcard))
+            categories["draw_stand"].append(("soft", soft_total, dealer_upcard))
     for hard_total, dealer_table in DOUBLE_DOWN_STRATEGY["hard"].items():
         for dealer_upcard in dealer_table:
-            # Repeat double-down states because they are costly and harder to learn.
-            cells.extend([("double_hard", hard_total, dealer_upcard)] * 3)
+            categories["double"].append(("double_hard", hard_total, dealer_upcard))
     for soft_total, dealer_table in DOUBLE_DOWN_STRATEGY["soft"].items():
         for dealer_upcard in dealer_table:
-            cells.extend([("double_soft", soft_total, dealer_upcard)] * 3)
+            categories["double"].append(("double_soft", soft_total, dealer_upcard))
+    for pair_card, dealer_table in PAIR_SPLIT_STRATEGY.items():
+        for dealer_upcard in dealer_table:
+            categories["split"].append(("pair", pair_card, dealer_upcard))
+
+    return categories
+
+
+def practice_cells() -> list[PracticeCell]:
+    cells = []
+    categories = practice_cells_by_category()
+    cells.extend(categories["draw_stand"])
+    cells.extend(categories["double"] * 3)
+    cells.extend(categories["split"])
     return cells
 
 

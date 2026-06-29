@@ -13,11 +13,19 @@ from .train_basic import (
     double_strategy_accuracy,
     pair_split_accuracy,
     practice_cells,
+    practice_cells_by_category,
     print_basic_strategy_accuracy,
     print_double_policy,
     print_policy,
     soft_strategy_accuracy,
 )
+
+
+PRACTICE_CATEGORY_WEIGHTS = {
+    "draw_stand": 0.40,
+    "double": 0.30,
+    "split": 0.30,
+}
 
 
 def play_mc_hand(
@@ -65,6 +73,9 @@ def train(
     agent = MonteCarloAgent(seed=seed + 1)
     practice_rng = Random(seed + 2)
     cells = practice_cells()
+    categorized_cells = practice_cells_by_category()
+    category_names = list(PRACTICE_CATEGORY_WEIGHTS)
+    category_weights = [PRACTICE_CATEGORY_WEIGHTS[name] for name in category_names]
     logs: list[dict[str, float | int | str]] = []
     window_profit = 0.0
     log_every = max(1, episodes // 20)
@@ -73,7 +84,8 @@ def train(
         epsilon = max(0.01, 0.30 * (1 - episode / episodes))
         practice_cell = None
         if practice_rng.random() < practice_ratio:
-            practice_cell = cells[(episode - 1) % len(cells)]
+            category = practice_rng.choices(category_names, weights=category_weights, k=1)[0]
+            practice_cell = practice_rng.choice(categorized_cells[category])
 
         window_profit += play_mc_hand(env, agent, epsilon, practice_cell)
 
@@ -85,6 +97,7 @@ def train(
                     "epsilon": round(epsilon, 4),
                     "practice_ratio": practice_ratio,
                     "practice_cells": len(cells),
+                    "practice_sampling": "weighted_categories",
                     "avg_profit_last_window": round(window_profit / log_every, 5),
                     "known_state_actions": len(agent.q),
                 }

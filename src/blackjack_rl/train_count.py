@@ -28,7 +28,7 @@ COUNT_VARIANTS = [
     },
 ]
 
-COUNT_BUCKETS = list(range(-5, 6))
+INDEX_BUCKETS = list(range(-20, 21))
 
 
 def play_training_hand(env: BlackjackEnv, agent: QLearningAgent, epsilon: float) -> float:
@@ -100,7 +100,7 @@ def train(
 
 
 def pretrain_count_agent(episodes: int, seed: int, decks: int) -> QLearningAgent:
-    """Learn a no-count policy, then copy it into every count bucket."""
+    """Learn a no-count policy, then copy it into every index bucket."""
 
     base_agent, _ = train(
         episodes=episodes,
@@ -112,12 +112,12 @@ def pretrain_count_agent(episodes: int, seed: int, decks: int) -> QLearningAgent
     count_agent = QLearningAgent(seed=seed + 1000)
 
     for (state, action), value in base_agent.q.items():
-        for bucket in COUNT_BUCKETS:
+        for bucket in INDEX_BUCKETS:
             count_state = State(
                 player_total=state.player_total,
                 dealer_upcard=state.dealer_upcard,
                 usable_ace=state.usable_ace,
-                true_count_bucket=bucket,
+                high_low_index_bucket=bucket,
                 can_double=state.can_double,
                 can_split=state.can_split,
             )
@@ -147,12 +147,12 @@ def evaluate(
     wins = 0
     losses = 0
     pushes = 0
-    bets_by_count: dict[int, list[int]] = defaultdict(list)
+    bets_by_index: dict[str, list[int]] = defaultdict(list)
 
     for _ in range(hands):
         state = env.reset()
         total_bet += env.bet
-        bets_by_count[state.true_count_bucket].append(env.bet)
+        bets_by_index[env.bet_index_band].append(env.bet)
         done = False
         hand_profit = 0.0
 
@@ -186,11 +186,11 @@ def evaluate(
     }
     bet_rows = [
         {
-            "true_count_bucket": bucket,
+            "betting_index_band": bucket,
             "avg_bet": round(mean(bets), 4),
             "hands": len(bets),
         }
-        for bucket, bets in sorted(bets_by_count.items())
+        for bucket, bets in sorted(bets_by_index.items())
     ]
     return summary, bet_rows
 
@@ -204,14 +204,14 @@ def write_csv(path: Path, rows: list[dict]) -> None:
 
 
 def print_count_policy_sample(agent: QLearningAgent) -> None:
-    """Print a small sample showing that count bucket can change decisions."""
+    """Print a small sample showing that the high-low index can change decisions."""
 
-    count_buckets = [-2, 0, 2, 4]
+    count_buckets = [-6, 0, 6, 10]
     dealer_cards = [2, 6, 10, 11]
     dealer_labels = ["2", "6", "10", "A"]
 
     print("\nLearned policy sample, hard 16:")
-    print("count | " + " | ".join(f"{label:>5}" for label in dealer_labels))
+    print("index | " + " | ".join(f"{label:>5}" for label in dealer_labels))
     for bucket in count_buckets:
         actions = []
         for dealer_upcard in dealer_cards:
@@ -221,19 +221,20 @@ def print_count_policy_sample(agent: QLearningAgent) -> None:
 
 
 def print_bet_by_count(rows: list[dict[str, float | int | str]]) -> None:
-    """Print average initial bet by true-count bucket for each variant."""
+    """Print average initial bet by high-low index bucket for each variant."""
 
     if not rows:
         return
 
-    print("\nAverage initial bet by true-count bucket:")
+    print("\nAverage initial bet by high-low index bucket:")
     for variant in sorted({str(row["variant"]) for row in rows}):
         print(f"\n{variant}")
         variant_rows = [row for row in rows if row["variant"] == variant]
-        for row in sorted(variant_rows, key=lambda item: int(item["true_count_bucket"])):
-            bucket = int(row["true_count_bucket"])
+        band_order = {"0": 0, "<=2": 1, "3-5": 2, "6-7": 3, "8-9": 4, ">=10": 5}
+        for row in sorted(variant_rows, key=lambda item: band_order[str(item["betting_index_band"])]):
+            band = str(row["betting_index_band"])
             print(
-                f"true count {bucket:+d}: "
+                f"index {band:>4}: "
                 f"avg_bet={float(row['avg_bet']):.3f}, "
                 f"n={int(row['hands'])}"
             )
@@ -336,7 +337,7 @@ def main() -> None:
 
         write_csv(args.out / "training_log.csv", all_logs)
         write_csv(args.out / "evaluation_summary.csv", summaries)
-        write_csv(args.out / "bet_by_count.csv", all_bet_rows)
+        write_csv(args.out / "bet_by_index_band.csv", all_bet_rows)
         if last_count_agent is not None:
             print_count_policy_sample(last_count_agent)
         print_bet_by_count(all_bet_rows)
@@ -356,7 +357,7 @@ def main() -> None:
 
     write_csv(args.out / "training_log.csv", logs)
     write_csv(args.out / "evaluation_summary.csv", [summary])
-    write_csv(args.out / "bet_by_count.csv", bet_rows)
+    write_csv(args.out / "bet_by_index_band.csv", bet_rows)
 
     print(summary)
     print_count_policy_sample(agent)

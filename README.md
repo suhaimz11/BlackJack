@@ -90,6 +90,12 @@ To compare Basic Strategy with first-visit Monte Carlo:
 python -m src.blackjack_rl.train_basic_mc --episodes 100000 --eval-hands 20000 --practice-ratio 0.8 --out results_basic_mc
 ```
 
+The Monte Carlo runner samples practice states by category:
+
+- 40% hard/soft draw-stand states
+- 30% double-down states
+- 30% pair-splitting states
+
 ## Step 2: Complete Point-Count Scenario
 
 The second scenario adds a finite Blackjack shoe and a Complete Point-Count style system.
@@ -100,7 +106,13 @@ The implemented point-count card weights are:
 - cards 7-9 add `0`
 - cards 10 and ace add `-1`
 
-The program converts the running count into a true count by dividing by the approximate number of decks remaining. The state now includes a rounded true-count bucket.
+Following Thorp's CPCS description, the program converts the running count into a high-low index:
+
+```text
+high-low index = 100 * running count / unseen cards
+```
+
+The state includes a rounded high-low index bucket.
 
 For the portfolio task, this is the implemented Complete Point-Count style system:
 
@@ -108,15 +120,16 @@ For the portfolio task, this is the implemented Complete Point-Count style syste
 - reshuffle after 75% shoe penetration
 - visible cards update the running count
 - the dealer hole card is counted only when revealed
-- true count is rounded and clipped into buckets from `-5` to `5`
-- the RL state becomes player total, dealer upcard, usable ace, true-count bucket, whether double is legal, and whether split is legal
+- high-low index is rounded and clipped into buckets from `-20` to `20`
+- the RL state becomes player total, dealer upcard, usable ace, high-low index bucket, whether double is legal, and whether split is legal
 
 The bet also changes:
 
-- low or neutral count: bet 1 unit
-- true count 2: bet 2 units
-- true count 3: bet 3 units
-- true count 4 or higher: bet 4 units
+- index 2 or lower: bet 1 unit
+- index 4 or 5: bet 2 units
+- index 6 or 7: bet 3 units
+- index 8 or 9: bet 4 units
+- index 10 or higher: bet 5 units
 
 Run the point-count scenario:
 
@@ -160,6 +173,6 @@ The program creates:
 
 - `training_log.csv`
 - `evaluation_summary.csv`
-- `bet_by_count.csv` for point-count runs
+- `bet_by_index_band.csv` for point-count runs
 
 These files will later support the paper in Task P3.2.
