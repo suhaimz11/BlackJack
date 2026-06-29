@@ -62,6 +62,12 @@ During training, the program also uses practice states. This means some hands be
   - Uses a finite shoe and Complete Point-Count style card weights.
   - Adjusts the bet based on the true count.
 
+- `src/blackjack_rl/train_variations.py`
+  - Evaluates two rule variations:
+    - dealer hits soft 17
+    - blackjack pays 6:5
+  - Tests both Basic Strategy MC and CPCS Q-learning under each variation.
+
 ## Run
 
 From this folder:
@@ -153,6 +159,25 @@ For a quick point-count smoke test:
 
 ```powershell
 python -m src.blackjack_rl.train_count --episodes 5000 --eval-hands 1000 --out results_count_smoke
+```
+
+## Step 3: Rule Variations
+
+The third scenario examines two rule changes:
+
+- dealer hits soft 17
+- blackjack pays 6:5
+
+Run both rule variations:
+
+```powershell
+python -m src.blackjack_rl.train_variations --episodes-basic 200000 --episodes-cpcs 200000 --eval-hands 30000 --out results_variations
+```
+
+For a quick smoke test:
+
+```powershell
+python -m src.blackjack_rl.train_variations --episodes-basic 1000 --episodes-cpcs 1000 --eval-hands 500 --out results_variations_smoke
 ```
 
 For a quicker test:

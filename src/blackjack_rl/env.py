@@ -171,11 +171,15 @@ class BlackjackEnv:
         penetration: float = 0.75,
         use_count_in_state: bool = False,
         variable_bet: bool = False,
+        dealer_hits_soft_17: bool = False,
+        blackjack_payout: float = 1.5,
     ):
         self.rng = Random(seed)
         self.shoe = None if decks is None else Shoe(decks, penetration, self.rng)
         self.use_count_in_state = use_count_in_state
         self.variable_bet = variable_bet
+        self.dealer_hits_soft_17 = dealer_hits_soft_17
+        self.blackjack_payout = blackjack_payout
         self.player: list[Card] = []
         self.pending_hands: list[tuple[list[Card], int, bool]] = []
         self.finished_hands: list[tuple[list[Card], int]] = []
@@ -386,7 +390,7 @@ class BlackjackEnv:
 
         if single_unsplit_hand and is_blackjack(self.player) and not is_blackjack(self.dealer):
             self.reveal_dealer_hole()
-            return None, float(self.bet), True
+            return None, self.blackjack_payout * self.bet, True
         if single_unsplit_hand and is_blackjack(self.dealer) and not is_blackjack(self.player):
             self.reveal_dealer_hole()
             return None, -float(self.bet), True
@@ -398,7 +402,10 @@ class BlackjackEnv:
 
         while True:
             dealer_total, _ = hand_value(self.dealer)
-            if dealer_total >= 17:
+            _, dealer_soft = hand_value(self.dealer)
+            if dealer_total > 17:
+                break
+            if dealer_total == 17 and not (dealer_soft and self.dealer_hits_soft_17):
                 break
             self.dealer.append(self.draw())
 
