@@ -203,21 +203,60 @@ def write_csv(path: Path, rows: list[dict]) -> None:
         writer.writerows(rows)
 
 
-def print_count_policy_sample(agent: QLearningAgent) -> None:
-    """Print a small sample showing that the high-low index can change decisions."""
+def action_label(action: str) -> str:
+    return {
+        "hit": "H",
+        "stand": "St",
+        "double": "D",
+        "split": "Sp",
+    }[action]
 
-    count_buckets = [-6, 0, 6, 10]
-    dealer_cards = [2, 6, 10, 11]
-    dealer_labels = ["2", "6", "10", "A"]
 
-    print("\nLearned policy sample, hard 16:")
-    print("index | " + " | ".join(f"{label:>5}" for label in dealer_labels))
-    for bucket in count_buckets:
-        actions = []
-        for dealer_upcard in dealer_cards:
-            state = State(16, dealer_upcard, False, bucket, can_double=False)
-            actions.append(agent.best_action(state, ("hit", "stand")))
-        print(f"{bucket:>5} | " + " | ".join(f"{action:>5}" for action in actions))
+def print_count_policy_tables(agent: QLearningAgent) -> None:
+    """Print full hard and soft policy tables for selected CPCS index buckets."""
+
+    index_buckets = [-6, 0, 6, 10]
+    dealer_cards = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    dealer_labels = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "A"]
+
+    print("\nLegend: H=hit, St=stand, D=double, Sp=split")
+
+    for bucket in index_buckets:
+        print(f"\nLearned hard-hand policy, high-low index bucket {bucket:+d}:")
+        print("player_total | " + " | ".join(f"{label:>2}" for label in dealer_labels))
+        for player_total in range(9, 22):
+            actions = []
+            can_double = player_total in (9, 10, 11)
+            legal_actions = ("hit", "stand", "double") if can_double else ("hit", "stand")
+            for dealer_upcard in dealer_cards:
+                state = State(
+                    player_total,
+                    dealer_upcard,
+                    False,
+                    bucket,
+                    can_double=can_double,
+                    can_split=False,
+                )
+                actions.append(action_label(agent.best_action(state, legal_actions)))
+            print(f"{player_total:>12} | " + " | ".join(f"{action:>2}" for action in actions))
+
+        print(f"\nLearned soft-hand policy, high-low index bucket {bucket:+d}:")
+        print("soft_total   | " + " | ".join(f"{label:>2}" for label in dealer_labels))
+        for soft_total in range(13, 22):
+            actions = []
+            can_double = 13 <= soft_total <= 18
+            legal_actions = ("hit", "stand", "double") if can_double else ("hit", "stand")
+            for dealer_upcard in dealer_cards:
+                state = State(
+                    soft_total,
+                    dealer_upcard,
+                    True,
+                    bucket,
+                    can_double=can_double,
+                    can_split=False,
+                )
+                actions.append(action_label(agent.best_action(state, legal_actions)))
+            print(f"{soft_total:>12} | " + " | ".join(f"{action:>2}" for action in actions))
 
 
 def print_bet_by_count(rows: list[dict[str, float | int | str]]) -> None:
@@ -339,7 +378,7 @@ def main() -> None:
         write_csv(args.out / "evaluation_summary.csv", summaries)
         write_csv(args.out / "bet_by_index_band.csv", all_bet_rows)
         if last_count_agent is not None:
-            print_count_policy_sample(last_count_agent)
+            print_count_policy_tables(last_count_agent)
         print_bet_by_count(all_bet_rows)
         print(f"\nWrote logs to: {args.out}")
         return
@@ -360,7 +399,7 @@ def main() -> None:
     write_csv(args.out / "bet_by_index_band.csv", bet_rows)
 
     print(summary)
-    print_count_policy_sample(agent)
+    print_count_policy_tables(agent)
     print_bet_by_count(bet_rows)
     print(f"\nWrote logs to: {args.out}")
 

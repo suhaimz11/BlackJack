@@ -269,9 +269,9 @@ def write_csv(path: Path, rows: list[dict]) -> None:
 
 
 def print_policy(agent: QLearningAgent) -> None:
-    """Print the learned policy for all dealer upcards."""
+    """Print learned hard and soft policies for all dealer upcards."""
 
-    print("\nLearned policy, no usable ace:")
+    print("\nLearned hard-hand policy, no usable ace:")
     print("player_total | " + " | ".join(f"{label:>5}" for label in DEALER_LABELS))
     for player_total in range(12, 22):
         actions = []
@@ -285,6 +285,21 @@ def print_policy(agent: QLearningAgent) -> None:
             )
             actions.append(agent.best_action(state, ("hit", "stand")))
         print(f"{player_total:>12} | " + " | ".join(f"{action:>5}" for action in actions))
+
+    print("\nLearned soft-hand policy, with usable ace:")
+    print("soft_total   | " + " | ".join(f"{label:>5}" for label in DEALER_LABELS))
+    for soft_total in range(13, 22):
+        actions = []
+        for dealer_upcard in DEALER_CARDS:
+            state = State(
+                soft_total,
+                dealer_upcard,
+                True,
+                can_double=can_double_hand([11, soft_total - 11]),
+                can_split=False,
+            )
+            actions.append(agent.best_action(state, ("hit", "stand")))
+        print(f"{soft_total:>12} | " + " | ".join(f"{action:>5}" for action in actions))
 
 
 def print_double_policy(agent: QLearningAgent) -> None:
