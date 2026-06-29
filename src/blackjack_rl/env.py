@@ -205,13 +205,15 @@ class BlackjackEnv:
     def reset_to_hard_total(self, player_total: int, dealer_upcard: int) -> State:
         """Start a practice hand from a chosen hard total and dealer upcard."""
 
-        if not 12 <= player_total <= 21:
-            raise ValueError("Practice player total must be between 12 and 21.")
+        if not 9 <= player_total <= 21:
+            raise ValueError("Practice player total must be between 9 and 21.")
         if dealer_upcard not in [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]:
             raise ValueError("Dealer upcard must be 2-10 or 11 for ace.")
 
         # Use only non-ace cards so this is definitely a hard total.
-        if player_total <= 20:
+        if player_total <= 19:
+            self.player = [2, player_total - 2]
+        elif player_total == 20:
             self.player = [10, player_total - 10]
         else:
             self.player = [10, 9, 2]

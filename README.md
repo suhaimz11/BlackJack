@@ -19,7 +19,7 @@ In the current version, the player can choose:
 - `double`
 - `split`
 
-The strategy is not hard-coded. Instead, the program uses Q-learning to learn which action is better in each state. The learned hard-total and pair-splitting policies are compared against Basic Strategy reference rules for validation. Doubling is available only as the first action of a hand.
+The strategy is not hard-coded by default. The program uses Q-learning to learn which action is better in each state. Thorp-style Basic Strategy tables are used as reference diagnostics for validation, not as the default final policy. Doubling is available only as the first action of a hand.
 
 To avoid unrealistic double-down choices, doubling is restricted to common double-down situations:
 
@@ -69,6 +69,12 @@ python -m src.blackjack_rl.train_basic --episodes 50000 --eval-hands 10000 --pra
 ```
 
 Use `--practice-ratio 0` to train only from normal random hands.
+
+To optionally initialize selected double-down Q-values from the reference table:
+
+```powershell
+python -m src.blackjack_rl.train_basic --episodes 50000 --eval-hands 10000 --practice-ratio 0.5 --use-basic-priors --out results_basic_priors
+```
 
 ## Step 2: Complete Point-Count Scenario
 

@@ -51,12 +51,17 @@ SOFT_TOTAL_STAND_STRATEGY: dict[int, dict[int, str]] = {
 
 DOUBLE_DOWN_STRATEGY: dict[str, dict[int, dict[int, bool]]] = {
     "hard": {
+        9: {dealer: 3 <= dealer <= 6 for dealer in DEALER_CARDS},
         10: {dealer: 2 <= dealer <= 9 for dealer in DEALER_CARDS},
         11: {dealer: True for dealer in DEALER_CARDS},
     },
     "soft": {
-        soft_total: {dealer: 2 <= dealer <= 6 for dealer in DEALER_CARDS}
-        for soft_total in range(13, 19)
+        13: {dealer: dealer in (5, 6) for dealer in DEALER_CARDS},
+        14: {dealer: dealer in (5, 6) for dealer in DEALER_CARDS},
+        15: {dealer: 4 <= dealer <= 6 for dealer in DEALER_CARDS},
+        16: {dealer: 4 <= dealer <= 6 for dealer in DEALER_CARDS},
+        17: {dealer: 3 <= dealer <= 6 for dealer in DEALER_CARDS},
+        18: {dealer: 2 <= dealer <= 6 for dealer in DEALER_CARDS},
     },
 }
 
@@ -75,6 +80,13 @@ def practice_cells() -> list[PracticeCell]:
     for soft_total, dealer_table in SOFT_TOTAL_STAND_STRATEGY.items():
         for dealer_upcard in dealer_table:
             cells.append(("soft", soft_total, dealer_upcard))
+    for hard_total, dealer_table in DOUBLE_DOWN_STRATEGY["hard"].items():
+        for dealer_upcard in dealer_table:
+            # Repeat double-down states because they are costly and harder to learn.
+            cells.extend([("double_hard", hard_total, dealer_upcard)] * 3)
+    for soft_total, dealer_table in DOUBLE_DOWN_STRATEGY["soft"].items():
+        for dealer_upcard in dealer_table:
+            cells.extend([("double_soft", soft_total, dealer_upcard)] * 3)
     return cells
 
 
@@ -92,7 +104,7 @@ def play_training_hand(
         kind, value, dealer_upcard = practice_cell
         if kind == "pair":
             state = env.reset_to_pair(value, dealer_upcard)
-        elif kind == "soft":
+        elif kind in ("soft", "double_soft"):
             state = env.reset_to_soft_total(value, dealer_upcard)
         else:
             state = env.reset_to_hard_total(value, dealer_upcard)
@@ -122,11 +134,46 @@ def play_training_hand(
     return total_reward
 
 
-def train(episodes: int, seed: int, practice_ratio: float) -> tuple[QLearningAgent, list[dict[str, float | int]]]:
+def initialize_basic_strategy_priors(agent: QLearningAgent, value: float = 0.2) -> None:
+    """Give the learner a small Table 3.3 prior for double-down decisions."""
+
+    for hard_total, dealer_table in DOUBLE_DOWN_STRATEGY["hard"].items():
+        hand = [2, 7] if hard_total == 9 else ([4, 6] if hard_total == 10 else [5, 6])
+        for dealer_upcard, should_double in dealer_table.items():
+            state = State(
+                hard_total,
+                dealer_upcard,
+                False,
+                can_double=can_double_hand(hand),
+                can_split=False,
+            )
+            agent.q[(state, "double")] = value if should_double else -value
+
+    for soft_total, dealer_table in DOUBLE_DOWN_STRATEGY["soft"].items():
+        hand = [11, soft_total - 11]
+        for dealer_upcard, should_double in dealer_table.items():
+            state = State(
+                soft_total,
+                dealer_upcard,
+                True,
+                can_double=can_double_hand(hand),
+                can_split=False,
+            )
+            agent.q[(state, "double")] = value if should_double else -value
+
+
+def train(
+    episodes: int,
+    seed: int,
+    practice_ratio: float,
+    use_basic_priors: bool,
+) -> tuple[QLearningAgent, list[dict[str, float | int]]]:
     """Train the agent and keep progress logs."""
 
     env = BlackjackEnv(seed=seed)
     agent = QLearningAgent(seed=seed + 1)
+    if use_basic_priors:
+        initialize_basic_strategy_priors(agent)
     practice_rng = Random(seed + 2)
     cells = practice_cells()
     logs: list[dict[str, float | int]] = []
@@ -148,6 +195,8 @@ def train(episodes: int, seed: int, practice_ratio: float) -> tuple[QLearningAge
                     "episode": episode,
                     "epsilon": round(epsilon, 4),
                     "practice_ratio": practice_ratio,
+                    "use_basic_priors": use_basic_priors,
+                    "practice_cells": len(cells),
                     "avg_profit_last_window": round(window_profit / log_every, 5),
                     "known_state_actions": len(agent.q),
                 }
@@ -222,6 +271,44 @@ def print_policy(agent: QLearningAgent) -> None:
             )
             actions.append(agent.best_action(state, ("hit", "stand")))
         print(f"{player_total:>12} | " + " | ".join(f"{action:>5}" for action in actions))
+
+
+def print_double_policy(agent: QLearningAgent) -> None:
+    """Print learned double-down choices for hard and soft double states."""
+
+    print("\nLearned hard double-down policy:")
+    print("player_total | " + " | ".join(f"{label:>5}" for label in DEALER_LABELS))
+    for hard_total in sorted(DOUBLE_DOWN_STRATEGY["hard"]):
+        hand = [2, 7] if hard_total == 9 else ([4, 6] if hard_total == 10 else [5, 6])
+        actions = []
+        for dealer_upcard in DEALER_CARDS:
+            state = State(
+                hard_total,
+                dealer_upcard,
+                False,
+                can_double=can_double_hand(hand),
+                can_split=False,
+            )
+            best = agent.best_action(state, ("hit", "stand", "double"))
+            actions.append("D" if best == "double" else "-")
+        print(f"{hard_total:>12} | " + " | ".join(f"{action:>5}" for action in actions))
+
+    print("\nLearned soft double-down policy:")
+    print("soft_total   | " + " | ".join(f"{label:>5}" for label in DEALER_LABELS))
+    for soft_total in sorted(DOUBLE_DOWN_STRATEGY["soft"]):
+        hand = [11, soft_total - 11]
+        actions = []
+        for dealer_upcard in DEALER_CARDS:
+            state = State(
+                soft_total,
+                dealer_upcard,
+                True,
+                can_double=can_double_hand(hand),
+                can_split=False,
+            )
+            best = agent.best_action(state, ("hit", "stand", "double"))
+            actions.append("D" if best == "double" else "-")
+        print(f"{soft_total:>12} | " + " | ".join(f"{action:>5}" for action in actions))
 
 
 def basic_strategy_accuracy(agent: QLearningAgent) -> dict[str, float | int]:
@@ -388,15 +475,26 @@ def main() -> None:
         default=0.5,
         help="Fraction of training hands started from hard-total practice states.",
     )
+    parser.add_argument(
+        "--use-basic-priors",
+        action="store_true",
+        help="Initialize selected Q-values from Thorp-style double-down rules.",
+    )
     args = parser.parse_args()
 
-    agent, logs = train(episodes=args.episodes, seed=args.seed, practice_ratio=args.practice_ratio)
+    agent, logs = train(
+        episodes=args.episodes,
+        seed=args.seed,
+        practice_ratio=args.practice_ratio,
+        use_basic_priors=args.use_basic_priors,
+    )
     summary = evaluate(agent, hands=args.eval_hands, seed=args.seed + 999)
     strategy_score = basic_strategy_accuracy(agent)
     soft_score = soft_strategy_accuracy(agent)
     double_score = double_strategy_accuracy(agent)
     split_score = pair_split_accuracy(agent)
     summary["practice_ratio"] = args.practice_ratio
+    summary["use_basic_priors"] = args.use_basic_priors
     summary["hard_total_strategy_matches"] = strategy_score["matches"]
     summary["hard_total_strategy_total"] = strategy_score["total"]
     summary["hard_total_strategy_accuracy"] = strategy_score["accuracy"]
@@ -415,6 +513,7 @@ def main() -> None:
 
     print(summary)
     print_policy(agent)
+    print_double_policy(agent)
     print_basic_strategy_accuracy(agent)
     print(f"\nWrote logs to: {args.out}")
 
