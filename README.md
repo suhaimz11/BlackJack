@@ -44,10 +44,18 @@ During training, the program also uses practice states. This means some hands be
   - Stores learned values in a Q-table.
   - Chooses actions during training and evaluation.
 
+- `src/blackjack_rl/mc_agent.py`
+  - Implements a first-visit Monte Carlo player.
+  - Used as a Basic Strategy comparison algorithm.
+
 - `src/blackjack_rl/train_basic.py`
   - Trains the agent.
   - Evaluates the learned policy.
   - Writes result CSV files.
+
+- `src/blackjack_rl/train_basic_mc.py`
+  - Trains the Basic Strategy scenario with first-visit Monte Carlo.
+  - Uses the same Basic Strategy diagnostics as the Q-learning runner.
 
 - `src/blackjack_rl/train_count.py`
   - Trains the point-count scenario.
@@ -74,6 +82,12 @@ To optionally initialize selected double-down Q-values from the reference table:
 
 ```powershell
 python -m src.blackjack_rl.train_basic --episodes 50000 --eval-hands 10000 --practice-ratio 0.5 --use-basic-priors --out results_basic_priors
+```
+
+To compare Basic Strategy with first-visit Monte Carlo:
+
+```powershell
+python -m src.blackjack_rl.train_basic_mc --episodes 100000 --eval-hands 20000 --practice-ratio 0.8 --out results_basic_mc
 ```
 
 ## Step 2: Complete Point-Count Scenario
